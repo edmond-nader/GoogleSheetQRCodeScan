@@ -40,6 +40,7 @@
     .status-loading { background-color: #ff9800; color: white; }
     .status-warning { background-color: #ff9800; color: white; }
     .status-paused { background-color: #607d8b; color: white; }
+    .status-reentry { background-color: #ffc107; color: black; }
     
     .scanner-container {
       position: relative;
@@ -104,6 +105,13 @@
       background-color: #1976d2;
     }
     
+    .button-active {
+      background-color: #f44336;
+    }
+    .button-active:hover {
+      background-color: #d32f2f;
+    }
+    
     .button-group {
       display: flex;
       gap: 10px;
@@ -112,6 +120,12 @@
     
     .button-group .button {
       margin-bottom: 0;
+    }
+    
+    .button-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
     }
     
     .small-button {
@@ -217,7 +231,65 @@
     }
     
     .hidden {
-      display: none;
+      display: none !important;
+    }
+    
+    /* Confirmation dialog */
+    .dialog-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    
+    .dialog {
+      background-color: white;
+      border-radius: 8px;
+      padding: 20px;
+      width: 300px;
+      max-width: 90%;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    
+    .dialog-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    
+    .dialog-content {
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    
+    .dialog-buttons {
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    .dialog-button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    
+    .dialog-button-primary {
+      background-color: #4CAF50;
+      color: white;
+    }
+    
+    .dialog-button-secondary {
+      background-color: #f44336;
+      color: white;
     }
     
     /* Toggle switch styles */
@@ -265,6 +337,25 @@
     input:checked + .slider:before {
       transform: translateX(16px);
     }
+    
+    .mode-indicator {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+    
+    .mode-indicator-entry {
+      background-color: #4caf50;
+      color: white;
+    }
+    
+    .mode-indicator-exit {
+      background-color: #f44336;
+      color: white;
+    }
   </style>
 </head>
 <body>
@@ -285,6 +376,14 @@
       <video id="video" playsinline autoplay></video>
       <div id="debug-info"></div>
       <div class="paused-overlay hidden" id="paused-overlay">SCANNER PAUSED</div>
+    </div>
+    
+    <!-- Scan mode selector -->
+    <div class="button-row">
+      <button class="button" id="temp-exit-btn">
+        Temporary Exit Mode
+        <span class="mode-indicator mode-indicator-entry" id="mode-indicator">ENTRY</span>
+      </button>
     </div>
     
     <div class="manual-entry">
@@ -312,6 +411,20 @@
       </h2>
       <div class="scan-list" id="scan-list">
         <div class="empty-message">No items scanned yet</div>
+      </div>
+    </div>
+    
+    <!-- Confirmation Dialog -->
+    <div class="dialog-overlay hidden" id="dialog-overlay">
+      <div class="dialog">
+        <div class="dialog-title" id="dialog-title">Confirm Temporary Exit</div>
+        <div class="dialog-content" id="dialog-content">
+          Do you want to mark this person as temporarily out?
+        </div>
+        <div class="dialog-buttons">
+          <button class="dialog-button dialog-button-secondary" id="dialog-cancel">Cancel</button>
+          <button class="dialog-button dialog-button-primary" id="dialog-confirm">Confirm</button>
+        </div>
       </div>
     </div>
   </div>
@@ -347,6 +460,15 @@
     const toggleDebugBtn = document.getElementById('toggle-debug');
     const pausedOverlay = document.getElementById('paused-overlay');
     const soundToggle = document.getElementById('sound-toggle');
+    const tempExitBtn = document.getElementById('temp-exit-btn');
+    const modeIndicator = document.getElementById('mode-indicator');
+    
+    // Dialog elements
+    const dialogOverlay = document.getElementById('dialog-overlay');
+    const dialogTitle = document.getElementById('dialog-title');
+    const dialogContent = document.getElementById('dialog-content');
+    const dialogConfirm = document.getElementById('dialog-confirm');
+    const dialogCancel = document.getElementById('dialog-cancel');
     
     // Audio context for sound generation
     let audioContext = null;
@@ -417,6 +539,35 @@
       }
     }
     
+    // Create a warning sound for re-entry
+    function playWarningSound() {
+      if (!soundToggle.checked || !audioContext) return;
+      
+      try {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(700, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(1200, audioContext.currentTime + 0.1);
+        oscillator.frequency.setValueAtTime(700, audioContext.currentTime + 0.2);
+        
+        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.01);
+        gainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 0.1);
+        gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.2);
+        gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.3);
+      } catch (e) {
+        if (debugMode) logDebug('Error playing warning sound: ' + e);
+      }
+    }
+    
     // State
     let streaming = false;
     let videoTrack = null;
@@ -426,8 +577,13 @@
     let isPaused = false;
     let cooldown = false;
     let animationFrame = null;
+    let isTempExitMode = false;
+    let pendingGuid = null;
     const scannedItems = {};
     let currentCamera = 'environment';
+    
+    // Make sure dialog is hidden initially
+    dialogOverlay.classList.add('hidden');
     
     // Setup event listeners
     grantPermissionBtn.addEventListener('click', function() {
@@ -451,12 +607,114 @@
       initAudio();
       if (debugMode) logDebug('Sound ' + (this.checked ? 'enabled' : 'disabled'));
     });
+    tempExitBtn.addEventListener('click', toggleTempExitMode);
+    dialogConfirm.addEventListener('click', confirmTempExit);
+    dialogCancel.addEventListener('click', cancelTempExit);
     
     // Initialize on first load
     document.addEventListener('click', initAudio, { once: true });
     
     // Check if camera is already granted and available
     initCamera();
+    
+    // Toggle temporary exit mode
+    function toggleTempExitMode() {
+      isTempExitMode = !isTempExitMode;
+      
+      if (isTempExitMode) {
+        tempExitBtn.classList.add('button-active');
+        modeIndicator.textContent = 'EXIT';
+        modeIndicator.classList.remove('mode-indicator-entry');
+        modeIndicator.classList.add('mode-indicator-exit');
+        updateStatus('warning', 'Temporary Exit Mode Active');
+      } else {
+        tempExitBtn.classList.remove('button-active');
+        modeIndicator.textContent = 'ENTRY';
+        modeIndicator.classList.remove('mode-indicator-exit');
+        modeIndicator.classList.add('mode-indicator-entry');
+        updateStatus('idle', 'Ready to scan');
+      }
+      
+      if (debugMode) logDebug('Temp exit mode: ' + (isTempExitMode ? 'ON' : 'OFF'));
+    }
+    
+    // Show confirmation dialog for temporary exit
+    function showConfirmDialog(guid) {
+      // Only proceed if we have a valid GUID
+      if (!guid) return;
+      
+      pendingGuid = guid;
+      dialogTitle.textContent = 'Confirm Temporary Exit';
+      dialogContent.textContent = `Do you want to mark person with QR code ${guid} as temporarily out?`;
+      dialogOverlay.classList.remove('hidden');
+    }
+    
+    // Confirm temporary exit
+    function confirmTempExit() {
+      if (!pendingGuid) return;
+      
+      dialogOverlay.classList.add('hidden');
+      processTempExit(pendingGuid);
+      pendingGuid = null;
+    }
+    
+    // Cancel temporary exit
+    function cancelTempExit() {
+      dialogOverlay.classList.add('hidden');
+      pendingGuid = null;
+      cooldown = false;
+    }
+    
+    // Process temporary exit
+    function processTempExit(guid) {
+      updateStatus('loading', 'Processing temporary exit...');
+      
+      if (debugMode) logDebug('Processing temp exit: ' + guid);
+      
+      // Use google.script.run to call the server-side function
+      google.script.run
+        .withSuccessHandler(function(data) {
+          if (debugMode) logDebug('Response: ' + JSON.stringify(data));
+          
+          if (data.success) {
+            if (data.notRegistered) {
+              playErrorSound();
+              updateStatus('error', `Error: QR Code ${guid} was never registered!`);
+            } else {
+              playWarningSound();
+              updateStatus('warning', `QR Code ${guid} marked as temporarily out!`);
+              addToScanList(guid, 'out');
+            }
+          } else {
+            playErrorSound();
+            updateStatus('error', `Error: ${data.message || 'Unknown QR Code'}`);
+          }
+          
+          // Reset cooldown after a delay
+          setTimeout(() => {
+            cooldown = false;
+            if (!isPaused) {
+              updateStatus(isTempExitMode ? 'warning' : 'idle', 
+                           isTempExitMode ? 'Temporary Exit Mode Active' : 'Ready to scan');
+            }
+          }, 1500);
+        })
+        .withFailureHandler(function(error) {
+          if (debugMode) logDebug('Error: ' + error);
+          playErrorSound();
+          updateStatus('error', 'Server error, please try again');
+          
+          // Reset cooldown after a delay
+          setTimeout(() => {
+            cooldown = false;
+            if (!isPaused) {
+              updateStatus(isTempExitMode ? 'warning' : 'idle', 
+                           isTempExitMode ? 'Temporary Exit Mode Active' : 'Ready to scan');
+            }
+          }, 1500);
+        })
+        .processTempExit(guid);
+    }
     
     // Toggle debug mode
     function toggleDebugMode() {
@@ -486,7 +744,8 @@
       } else {
         pauseCameraBtn.textContent = 'Pause Scanner';
         pausedOverlay.classList.add('hidden');
-        updateStatus('idle', 'Scan a QR code');
+        updateStatus(isTempExitMode ? 'warning' : 'idle', 
+                     isTempExitMode ? 'Temporary Exit Mode Active' : 'Ready to scan');
         
         // Restart scanning
         if (scanning && !animationFrame) {
@@ -535,7 +794,8 @@
                 if (debugMode) logDebug('Video playing');
                 streaming = true;
                 startScanning();
-                updateStatus('idle', 'Scan a QR code');
+                updateStatus(isTempExitMode ? 'warning' : 'idle', 
+                             isTempExitMode ? 'Temporary Exit Mode Active' : 'Ready to scan');
               })
               .catch(err => {
                 if (debugMode) logDebug('Error playing video: ' + err.message);
@@ -616,8 +876,13 @@
             navigator.vibrate(100);
           }
           
-          // Process the QR code
-          processGuid(code.data);
+          // If in temporary exit mode, show confirmation dialog
+          if (isTempExitMode) {
+            showConfirmDialog(code.data);
+          } else {
+            // Otherwise process as normal entry/re-entry
+            processGuid(code.data);
+          }
         }
       }
       
@@ -635,7 +900,15 @@
       }
       
       if (debugMode) logDebug('Manual input: ' + guid);
-      processGuid(guid);
+      
+      // If in temporary exit mode, show confirmation dialog
+      if (isTempExitMode) {
+        showConfirmDialog(guid);
+      } else {
+        // Otherwise process as normal entry/re-entry
+        processGuid(guid);
+      }
+      
       manualInput.value = '';
     }
     
@@ -654,10 +927,14 @@
             if (data.alreadyEntered) {
               playErrorSound();
               updateStatus('error', `QR Code ${guid} was already scanned!`);
+            } else if (data.reentry) {
+              playWarningSound();
+              updateStatus('reentry', `QR Code ${guid} re-entered successfully after temporary exit!`);
+              addToScanList(guid, 'in');
             } else {
               playSuccessSound();
               updateStatus('success', `QR Code ${guid} registered successfully!`);
-              addToScanList(guid);
+              addToScanList(guid, 'new');
             }
           } else {
             playErrorSound();
@@ -668,7 +945,8 @@
           setTimeout(() => {
             cooldown = false;
             if (!isPaused) {
-              updateStatus('idle', 'Scan a QR code');
+              updateStatus(isTempExitMode ? 'warning' : 'idle', 
+                           isTempExitMode ? 'Temporary Exit Mode Active' : 'Ready to scan');
             }
           }, 1500);
         })
@@ -681,7 +959,8 @@
           setTimeout(() => {
             cooldown = false;
             if (!isPaused) {
-              updateStatus('idle', 'Scan a QR code');
+              updateStatus(isTempExitMode ? 'warning' : 'idle', 
+                           isTempExitMode ? 'Temporary Exit Mode Active' : 'Ready to scan');
             }
           }, 1500);
         })
@@ -695,9 +974,9 @@
     }
     
     // Add scanned item to history
-    function addToScanList(guid) {
+    function addToScanList(guid, type) {
       const timestamp = new Date().toISOString();
-      scannedItems[guid] = timestamp;
+      scannedItems[guid] = { timestamp, type };
       
       // Clear empty message if present
       const emptyMessage = scanList.querySelector('.empty-message');
@@ -708,8 +987,16 @@
       // Create new item
       const item = document.createElement('div');
       item.className = 'scan-item';
+      
+      let statusLabel = '';
+      if (type === 'out') {
+        statusLabel = '(OUT)';
+      } else if (type === 'in') {
+        statusLabel = '(IN)';
+      }
+      
       item.innerHTML = `
-        <span class="guid">${guid}</span>
+        <span class="guid">${guid} ${statusLabel}</span>
         <span class="time">${new Date(timestamp).toLocaleTimeString()}</span>
       `;
       
