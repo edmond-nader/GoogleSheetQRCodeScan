@@ -34,9 +34,15 @@ function doPost(e) {
     const requestData = JSON.parse(e.postData.contents);
     const guid = requestData.guid;
     const timestamp = requestData.timestamp;
+    const isTempExit = requestData.isTempExit || false;
     
     // Process the GUID
-    const result = processScannedGuid(guid);
+    let result;
+    if (isTempExit) {
+      result = processTempExit(guid);
+    } else {
+      result = processScannedGuid(guid);
+    }
     
     // Return the result
     return ContentService.createTextOutput(JSON.stringify(result))
@@ -61,7 +67,118 @@ function processScannedGuid(guid) {
     // Log the incoming GUID for debugging
     Logger.log("Processing GUID: " + guid);
     
-    const timestamp = new Date().toISOString();
+    const timestamp = new Date();
+    
+    // Get the active spreadsheet (the one containing this script)
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    if (!spreadsheet) {
+      Logger.log("Could not access the active spreadsheet");
+      return {
+        success: false,
+        message: "Could not access the spreadsheet"
+      };
+    }
+    
+    const sheet = spreadsheet.getActiveSheet();
+    Logger.log("Successfully accessed sheet: " + sheet.getName());
+    
+    // Get all data at once to improve performance
+    const lastRow = sheet.getLastRow();
+    const sheetData = sheet.getRange(1, 1, lastRow, 15).getValues();
+    Logger.log("Retrieved " + sheetData.length + " rows of data");
+    
+    // Define column indices (adjust these if your columns are different)
+    // GUID is in column H (8th column, index 7)
+    const guidColIndex = 7;
+    // Entered is in column L (12th column, index 11)
+    const enteredColIndex = 11;
+    // EntryTime is in column M (13th column, index 12)
+    const entryTimeColIndex = 12;
+    
+    // Search for the GUID in the data
+    let rowIndex = -1;
+    for (let i = 1; i < sheetData.length; i++) { // Start from 1 to skip header
+      if (sheetData[i][guidColIndex] === guid) {
+        rowIndex = i + 1; // +1 because rows are 1-indexed in Sheets
+        Logger.log("Found GUID at row " + rowIndex);
+        break;
+      }
+    }
+    
+    // If GUID not found
+    if (rowIndex === -1) {
+      Logger.log("GUID not found: " + guid);
+      return {
+        success: false,
+        message: "GUID not found"
+      };
+    }
+    
+    // Check if temporarily out (re-entry case)
+    const currentStatus = sheetData[rowIndex - 1][enteredColIndex];
+    const isReentry = currentStatus === "temporarilyOut";
+    
+    // Check if already entered and not temporarily out
+    if (currentStatus === "yes") {
+      Logger.log("GUID already entered: " + guid);
+      return {
+        success: true,
+        alreadyEntered: true
+      };
+    }
+    
+    // Update entered status
+    sheet.getRange(rowIndex, enteredColIndex + 1).setValue("yes");
+    
+    // Format the timestamp consistently
+    const formattedDate = Utilities.formatDate(
+      timestamp,
+      "GMT+3", // Adjust timezone as needed
+      "yyyy-MM-dd HH:mm:ss"
+    );
+    
+    // Get current entry time value (might be empty or have existing timestamps)
+    let currentEntryTime = sheetData[rowIndex - 1][entryTimeColIndex] || "";
+    
+    // For first-time entry, just use the formatted date
+    // For re-entry, append to existing entry time
+    let updatedEntryTime;
+    if (isReentry) {
+      updatedEntryTime = currentEntryTime + " | IN: " + formattedDate;
+    } else {
+      // If it's a brand new entry (not reentry), use the new format
+      updatedEntryTime = formattedDate;
+    }
+    
+    sheet.getRange(rowIndex, entryTimeColIndex + 1).setValue(updatedEntryTime);
+    Logger.log("Successfully updated entry for GUID: " + guid + (isReentry ? " (re-entry)" : ""));
+    
+    // Return success
+    return {
+      success: true,
+      alreadyEntered: false,
+      reentry: isReentry
+    };
+    
+  } catch (error) {
+    Logger.log("Error in processScannedGuid: " + error.toString());
+    return {
+      success: false,
+      message: error.toString()
+    };
+  }
+}
+
+/**
+ * Processes a temporary exit scan
+ * This is called when the user scans a QR code in temporary exit mode
+ */
+function processTempExit(guid) {
+  try {
+    // Log the incoming GUID for debugging
+    Logger.log("Processing temporary exit for GUID: " + guid);
+    
+    const timestamp = new Date();
     
     // Get the active spreadsheet (the one containing this script)
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
@@ -109,33 +226,39 @@ function processScannedGuid(guid) {
     }
     
     // Check if already entered
-    if (sheetData[rowIndex - 1][enteredColIndex] === "yes") {
-      Logger.log("GUID already entered: " + guid);
+    if (sheetData[rowIndex - 1][enteredColIndex] !== "yes") {
+      Logger.log("Cannot mark as temporarily out - not entered: " + guid);
       return {
         success: true,
-        alreadyEntered: true
+        notRegistered: true
       };
     }
     
-    // Update entered status and time
-    sheet.getRange(rowIndex, enteredColIndex + 1).setValue("yes");
+    // Update entered status to temporarily out
+    sheet.getRange(rowIndex, enteredColIndex + 1).setValue("temporarilyOut");
     
+    // Format the timestamp consistently
     const formattedDate = Utilities.formatDate(
-      new Date(timestamp),
+      timestamp,
       "GMT+3", // Adjust timezone as needed
       "yyyy-MM-dd HH:mm:ss"
     );
-    sheet.getRange(rowIndex, entryTimeColIndex + 1).setValue(formattedDate);
-    Logger.log("Successfully updated entry for GUID: " + guid);
+    
+    // Append to entry time
+    const currentEntryTime = sheetData[rowIndex - 1][entryTimeColIndex];
+    const updatedEntryTime = currentEntryTime + " | OUT: " + formattedDate;
+    sheet.getRange(rowIndex, entryTimeColIndex + 1).setValue(updatedEntryTime);
+    
+    Logger.log("Successfully marked temporary exit for GUID: " + guid);
     
     // Return success
     return {
       success: true,
-      alreadyEntered: false
+      notRegistered: false
     };
     
   } catch (error) {
-    Logger.log("Error in processScannedGuid: " + error.toString());
+    Logger.log("Error in processTempExit: " + error.toString());
     return {
       success: false,
       message: error.toString()
@@ -149,34 +272,6 @@ function processScannedGuid(guid) {
  */
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
-}
-
-/**
- * Test function to verify the script works
- */
-function testProcessGuid() {
-  const result = processScannedGuid("TEST_GUID");
-  Logger.log(result);
-}
-
-/**
- * Function to explicitly get and log spreadsheet information for debugging
- */
-function getSpreadsheetInfo() {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const info = {
-      name: ss.getName(),
-      url: ss.getUrl(),
-      id: ss.getId(),
-      sheets: ss.getSheets().map(s => s.getName())
-    };
-    Logger.log(info);
-    return info;
-  } catch (e) {
-    Logger.log("Error getting spreadsheet info: " + e.toString());
-    return { error: e.toString() };
-  }
 }
 
 /**
@@ -203,32 +298,37 @@ function getColumnHeaders() {
 }
 
 /**
- * Test function to check if a specific GUID exists and where
+ * Test function to verify the script is working
  */
-function findGuid(testGuid) {
+function testProcessGuid() {
+  const result = processScannedGuid("TEST_GUID");
+  Logger.log(result);
+}
+
+/**
+ * Test function for temporary exit
+ */
+function testTempExit() {
+  const result = processTempExit("TEST_GUID");
+  Logger.log(result);
+}
+
+/**
+ * Function to explicitly get and log spreadsheet information for debugging
+ */
+function getSpreadsheetInfo() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getActiveSheet();
-    const lastRow = sheet.getLastRow();
-    const guidColIndex = 7; // Adjust if your GUID column is different
-    
-    const guidData = sheet.getRange(1, guidColIndex+1, lastRow, 1).getValues();
-    
-    for (let i = 0; i < guidData.length; i++) {
-      if (guidData[i][0] === testGuid) {
-        return {
-          found: true,
-          row: i+1,
-          guid: testGuid
-        };
-      }
-    }
-    
-    return {
-      found: false,
-      guid: testGuid
+    const info = {
+      name: ss.getName(),
+      url: ss.getUrl(),
+      id: ss.getId(),
+      sheets: ss.getSheets().map(s => s.getName())
     };
+    Logger.log(info);
+    return info;
   } catch (e) {
+    Logger.log("Error getting spreadsheet info: " + e.toString());
     return { error: e.toString() };
   }
 }
