@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>QR Entry Scanner</title>
+  <base target="_top">
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .status-display {
+      width: 100%;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      transition: background-color 0.5s;
+      text-align: center;
+      font-weight: 500;
+      background-color: #f0f0f0;
+    }
+    .status-idle { background-color: #f0f0f0; }
+    .status-success { background-color: #4caf50; color: white; }
+    .status-error { background-color: #f44336; color: white; }
+    .status-loading { background-color: #ff9800; color: white; }
+    .status-warning { background-color: #ff9800; color: white; }
+    .status-paused { background-color: #607d8b; color: white; }
+    
+    .scanner-container {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      background-color: #212121;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .paused-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0,0,0,0.7);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: bold;
+      z-index: 10;
+    }
+    
+    #debug-info {
+      background-color: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 8px;
+      font-size: 12px;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      max-height: 100px;
+      overflow-y: auto;
+      display: none;
+    }
+    
+    .button {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      background-color: #2196f3;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .button:hover {
+      background-color: #1976d2;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    
+    .button-group .button {
+      margin-bottom: 0;
+    }
+    
+    .small-button {
+      padding: 8px 12px;
+      background-color: #9e9e9e;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    
+    .manual-entry {
+      display: flex;
+      margin-bottom: 16px;
+    }
+    
+    .manual-entry input {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid #ccc;
+      border-radius: 8px 0 0 8px;
+      font-size: 16px;
+    }
+    
+    .manual-entry button {
+      padding: 12px 20px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 0 8px 8px 0;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    
+    .audio-control {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    
+    .audio-control label {
+      font-size: 14px;
+      color: #555;
+    }
+    
+    .recent-scans {
+      width: 100%;
+      margin-top: 16px;
+    }
+    .recent-scans h2 {
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .scan-list {
+      background-color: white;
+      border-radius: 8px;
+      padding: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .empty-message {
+      text-align: center;
+      color: #757575;
+      padding: 16px;
+    }
+    .scan-item {
+      padding: 8px 0;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+    }
+    .scan-item:last-child {
+      border-bottom: none;
+    }
+    .time {
+      font-size: 0.85em;
+      color: #757575;
+    }
+    
+    .permission-request {
+      background-color: #2196f3;
+      color: white;
+      text-align: center;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+    
+    .permission-request button {
+      background-color: white;
+      color: #2196f3;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      font-weight: bold;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    
+    .hidden {
+      display: none;
+    }
+    
+    /* Toggle switch styles */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 24px;
+    }
+    
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 24px;
+    }
+    
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+    
+    input:checked + .slider {
+      background-color: #2196F3;
+    }
+    
+    input:checked + .slider:before {
+      transform: translateX(16px);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>QR Entry Scanner</h1>
+    
+    <div class="status-display status-idle" id="status">
+      Ready to scan
+    </div>
+    
+    <!-- Permission request block -->
+    <div class="permission-request hidden" id="permission-request">
+      <p>This app needs camera access to scan QR codes</p>
+      <button id="grant-permission">Grant Camera Access</button>
+    </div>
+    
+    <div class="scanner-container" id="scanner-container">
+      <video id="video" playsinline autoplay></video>
+      <div id="debug-info"></div>
+      <div class="paused-overlay hidden" id="paused-overlay">SCANNER PAUSED</div>
+    </div>
+    
+    <div class="manual-entry">
+      <input type="text" id="manual-input" placeholder="Enter QR code manually...">
+      <button id="submit-manual">Submit</button>
+    </div>
+    
+    <div class="audio-control">
+      <label for="sound-toggle">Sound:</label>
+      <label class="switch">
+        <input type="checkbox" id="sound-toggle" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+    
+    <div class="button-group">
+      <button class="button" id="pause-camera">Pause Scanner</button>
+      <button class="button" id="toggle-camera">Switch Camera</button>
+    </div>
+    
+    <div class="recent-scans">
+      <h2>
+        Recent Scans
+        <button class="small-button" id="toggle-debug">Debug Mode</button>
+      </h2>
+      <div class="scan-list" id="scan-list">
+        <div class="empty-message">No items scanned yet</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  
+  <script>
+    // Debug logging
+    const debugEl = document.getElementById('debug-info');
+    let debugMode = false;
+    
+    function logDebug(message) {
+      debugEl.innerHTML += message + '<br>';
+      // Keep only the last 5 lines
+      const lines = debugEl.innerHTML.split('<br>');
+      if (lines.length > 5) {
+        debugEl.innerHTML = lines.slice(lines.length - 5).join('<br>');
+      }
+      console.log(message);
+    }
+    
+    // Elements
+    const video = document.getElementById('video');
+    const statusEl = document.getElementById('status');
+    const scannerContainer = document.getElementById('scanner-container');
+    const permissionRequest = document.getElementById('permission-request');
+    const grantPermissionBtn = document.getElementById('grant-permission');
+    const toggleCameraBtn = document.getElementById('toggle-camera');
+    const pauseCameraBtn = document.getElementById('pause-camera');
+    const scanList = document.getElementById('scan-list');
+    const manualInput = document.getElementById('manual-input');
+    const submitManualBtn = document.getElementById('submit-manual');
+    const toggleDebugBtn = document.getElementById('toggle-debug');
+    const pausedOverlay = document.getElementById('paused-overlay');
+    const soundToggle = document.getElementById('sound-toggle');
+    
+    // Audio context for sound generation
+    let audioContext = null;
+    
+    // Initialize audio context on first user interaction (required by browsers)
+    function initAudio() {
+      if (audioContext === null) {
+        try {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          if (debugMode) logDebug('Audio context initialized');
+        } catch (e) {
+          if (debugMode) logDebug('Error initializing audio: ' + e);
+        }
+      }
+    }
+    
+    // Create a success beep sound
+    function playSuccessSound() {
+      if (!soundToggle.checked || !audioContext) return;
+      
+      try {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(1800, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(2000, audioContext.currentTime + 0.1);
+        
+        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.01);
+        gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.2);
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.2);
+      } catch (e) {
+        if (debugMode) logDebug('Error playing success sound: ' + e);
+      }
+    }
+    
+    // Create an error beep sound
+    function playErrorSound() {
+      if (!soundToggle.checked || !audioContext) return;
+      
+      try {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
+        
+        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.01);
+        gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0, audioContext.currentTime + 0.2);
+        gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.21);
+        gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.4);
+      } catch (e) {
+        if (debugMode) logDebug('Error playing error sound: ' + e);
+      }
+    }
+    
+    // State
+    let streaming = false;
+    let videoTrack = null;
+    let canvas = document.createElement('canvas');
+    let canvasContext = canvas.getContext('2d');
+    let scanning = false;
+    let isPaused = false;
+    let cooldown = false;
+    let animationFrame = null;
+    const scannedItems = {};
+    let currentCamera = 'environment';
+    
+    // Setup event listeners
+    grantPermissionBtn.addEventListener('click', function() {
+      initAudio();
+      initCamera();
+    });
+    toggleCameraBtn.addEventListener('click', function() {
+      initAudio();
+      toggleCamera();
+    });
+    submitManualBtn.addEventListener('click', function() {
+      initAudio();
+      handleManualInput();
+    });
+    pauseCameraBtn.addEventListener('click', function() {
+      initAudio();
+      togglePause();
+    });
+    toggleDebugBtn.addEventListener('click', toggleDebugMode);
+    soundToggle.addEventListener('change', function() {
+      initAudio();
+      if (debugMode) logDebug('Sound ' + (this.checked ? 'enabled' : 'disabled'));
+    });
+    
+    // Initialize on first load
+    document.addEventListener('click', initAudio, { once: true });
+    
+    // Check if camera is already granted and available
+    initCamera();
+    
+    // Toggle debug mode
+    function toggleDebugMode() {
+      debugMode = !debugMode;
+      debugEl.style.display = debugMode ? 'block' : 'none';
+      toggleDebugBtn.textContent = debugMode ? 'Hide Debug' : 'Debug Mode';
+      
+      if (debugMode) {
+        logDebug('Debug mode enabled');
+      }
+    }
+    
+    // Toggle pause/resume
+    function togglePause() {
+      isPaused = !isPaused;
+      
+      if (isPaused) {
+        pauseCameraBtn.textContent = 'Resume Scanner';
+        pausedOverlay.classList.remove('hidden');
+        updateStatus('paused', 'Scanner paused');
+        
+        // Cancel the animation frame if it's running
+        if (animationFrame) {
+          cancelAnimationFrame(animationFrame);
+          animationFrame = null;
+        }
+      } else {
+        pauseCameraBtn.textContent = 'Pause Scanner';
+        pausedOverlay.classList.add('hidden');
+        updateStatus('idle', 'Scan a QR code');
+        
+        // Restart scanning
+        if (scanning && !animationFrame) {
+          scanQRCode();
+        }
+      }
+    }
+    
+    // Initialize camera
+    function initCamera() {
+      updateStatus('loading', 'Initializing camera...');
+      permissionRequest.classList.add('hidden');
+      scannerContainer.classList.remove('hidden');
+      
+      if (debugMode) logDebug('Initializing camera...');
+      
+      // Define constraints
+      const constraints = {
+        video: { 
+          facingMode: currentCamera 
+        }
+      };
+      
+      // Try to get the camera stream
+      navigator.mediaDevices.getUserMedia(constraints)
+        .then(function(stream) {
+          if (debugMode) logDebug('Camera stream obtained');
+          
+          videoTrack = stream.getVideoTracks()[0];
+          if (debugMode) logDebug('Camera: ' + videoTrack.label);
+          
+          // Attach the stream to the video element
+          try {
+            video.srcObject = stream;
+          } catch (error) {
+            video.src = window.URL.createObjectURL(stream);
+            if (debugMode) logDebug('Using createObjectURL fallback');
+          }
+          
+          video.onloadedmetadata = function() {
+            if (debugMode) logDebug('Video metadata loaded');
+            
+            // Start the video
+            video.play()
+              .then(() => {
+                if (debugMode) logDebug('Video playing');
+                streaming = true;
+                startScanning();
+                updateStatus('idle', 'Scan a QR code');
+              })
+              .catch(err => {
+                if (debugMode) logDebug('Error playing video: ' + err.message);
+                updateStatus('error', 'Error playing video. Please reload.');
+              });
+          };
+        })
+        .catch(function(err) {
+          if (debugMode) logDebug('Error getting camera: ' + err.message);
+          updateStatus('error', 'Camera access denied or not available');
+          permissionRequest.classList.remove('hidden');
+          scannerContainer.classList.add('hidden');
+        });
+    }
+    
+    // Toggle between front and back cameras
+    function toggleCamera() {
+      if (videoTrack) {
+        videoTrack.stop();
+      }
+      
+      currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
+      toggleCameraBtn.textContent = currentCamera === 'environment' ? 'Use Front Camera' : 'Use Back Camera';
+      
+      if (debugMode) logDebug('Switching to ' + currentCamera + ' camera');
+      initCamera();
+    }
+    
+    // Start QR code scanning
+    function startScanning() {
+      if (!streaming) return;
+      
+      scanning = true;
+      
+      // Set canvas size to match video dimensions
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      if (debugMode) logDebug('Canvas size: ' + canvas.width + 'x' + canvas.height);
+      
+      // Start the scanning loop if not paused
+      if (!isPaused) {
+        scanQRCode();
+      }
+    }
+    
+    // Scan for QR codes
+    function scanQRCode() {
+      if (!scanning || cooldown || isPaused) {
+        animationFrame = requestAnimationFrame(scanQRCode);
+        return;
+      }
+      
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        // Draw the current video frame on the canvas
+        canvasContext.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Get the image data
+        const imageData = canvasContext.getImageData(0, 0, canvas.width, canvas.height);
+        
+        // Scan for QR code
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "dontInvert",
+        });
+        
+        // If a code is found
+        if (code) {
+          if (debugMode) logDebug('QR code detected: ' + code.data);
+          
+          // Enter cooldown to prevent multiple scans
+          cooldown = true;
+          
+          // Initialize audio if not already done
+          initAudio();
+          
+          // Vibrate if supported (for mobile devices)
+          if (navigator.vibrate) {
+            navigator.vibrate(100);
+          }
+          
+          // Process the QR code
+          processGuid(code.data);
+        }
+      }
+      
+      // Continue scanning
+      animationFrame = requestAnimationFrame(scanQRCode);
+    }
+    
+    // Handle manual input
+    function handleManualInput() {
+      const guid = manualInput.value.trim();
+      
+      if (!guid) {
+        updateStatus('warning', 'Please enter a valid QR code');
+        return;
+      }
+      
+      if (debugMode) logDebug('Manual input: ' + guid);
+      processGuid(guid);
+      manualInput.value = '';
+    }
+    
+    // Process the scanned GUID with Google Sheets
+    function processGuid(guid) {
+      updateStatus('loading', 'Processing entry...');
+      
+      if (debugMode) logDebug('Processing: ' + guid);
+      
+      // Use google.script.run to call the server-side function
+      google.script.run
+        .withSuccessHandler(function(data) {
+          if (debugMode) logDebug('Response: ' + JSON.stringify(data));
+          
+          if (data.success) {
+            if (data.alreadyEntered) {
+              playErrorSound();
+              updateStatus('error', `QR Code ${guid} was already scanned!`);
+            } else {
+              playSuccessSound();
+              updateStatus('success', `QR Code ${guid} registered successfully!`);
+              addToScanList(guid);
+            }
+          } else {
+            playErrorSound();
+            updateStatus('error', `Error: ${data.message || 'Unknown QR Code'}`);
+          }
+          
+          // Reset cooldown after a delay
+          setTimeout(() => {
+            cooldown = false;
+            if (!isPaused) {
+              updateStatus('idle', 'Scan a QR code');
+            }
+          }, 1500);
+        })
+        .withFailureHandler(function(error) {
+          if (debugMode) logDebug('Error: ' + error);
+          playErrorSound();
+          updateStatus('error', 'Server error, please try again');
+          
+          // Reset cooldown after a delay
+          setTimeout(() => {
+            cooldown = false;
+            if (!isPaused) {
+              updateStatus('idle', 'Scan a QR code');
+            }
+          }, 1500);
+        })
+        .processScannedGuid(guid);
+    }
+    
+    // Update status display
+    function updateStatus(type, message) {
+      statusEl.textContent = message;
+      statusEl.className = 'status-display status-' + type;
+    }
+    
+    // Add scanned item to history
+    function addToScanList(guid) {
+      const timestamp = new Date().toISOString();
+      scannedItems[guid] = timestamp;
+      
+      // Clear empty message if present
+      const emptyMessage = scanList.querySelector('.empty-message');
+      if (emptyMessage) {
+        scanList.innerHTML = '';
+      }
+      
+      // Create new item
+      const item = document.createElement('div');
+      item.className = 'scan-item';
+      item.innerHTML = `
+        <span class="guid">${guid}</span>
+        <span class="time">${new Date(timestamp).toLocaleTimeString()}</span>
+      `;
+      
+      // Add to list
+      scanList.prepend(item);
+    }
+  </script>
+</body>
+</html>
